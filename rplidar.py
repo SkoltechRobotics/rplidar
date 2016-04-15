@@ -2,22 +2,22 @@
 
 Usage example:
 
->>> from main import RPLidar
->>> rplidar = RPLidar('/dev/ttyUSB0')
->>> info =rplidar.get_info()
+>>> from rplidar import RPLidar
+>>> lidar = RPLidar('/dev/ttyUSB0')
+>>> info =lidar.get_info()
 >>> print('\n'.join('%s: %s' % (k, str(v)) for k, v in info.items()))
 firmware: (1, 15)
 model: 0
 hardware: 0
 serialnumber: 64E699F3C7E59AF0A2E69DF8F13735
->>> rplidar.get_health()
+>>> lidar.get_health()
 ('Good', 0)
 >>> process_scan = lambda scan: None
->>> for scan in rplidar.iter_scans():
+>>> for scan in lidar.iter_scans():
 ...  process_scan(scan)
 KeyboardInterrupt
->>> rplidar.stop()
->>> rplidar.stop_motor()
+>>> lidar.stop()
+>>> lidar.stop_motor()
 
 For additional information please refer to the RPLidar class documentation.
 '''
