@@ -6,9 +6,9 @@ Simple and lightweight module for working with RPLidar rangefinder scanners
     :target: http://rplidar.readthedocs.org/en/latest/?badge=latest
     :alt: Documentation Status
 
-.. image:: https://img.shields.io/pypi/dm/rplidar.svg
+.. image:: https://img.shields.io/pypi/v/rplidar.svg
     :target: https://pypi.python.org/pypi/rplidar
-    :alt: PyPI downloads
+    :alt: PyPI version
 
 This module aims to implement communication protocol with RPLidar
 laser rangefinder scaners. It's Python 2 and 3 compatible but was mainly tested using Python 3.
