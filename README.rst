@@ -1,6 +1,6 @@
 RPLidar
 
-A Python module for working with RPLidar laser scanners.
+Simple and lightweight module for working with RPLidar rangefinder scanners
 
 .. image:: https://readthedocs.org/projects/rplidar/badge/?version=latest
     :target: http://rplidar.readthedocs.org/en/latest/?badge=latest

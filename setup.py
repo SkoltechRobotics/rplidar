@@ -7,7 +7,7 @@ setup(
     name = 'rplidar',
     py_modules = ['rplidar'],
     version = '0.9.1',
-    description = 'Module for working with RPLidar laser scanners.',
+    description = 'Simple and lightweight module for working with RPLidar laser scanners',
     author='Artyom Pavlov',
     author_email='newpavlov@gmail.com',
     url='https://github.com/SkRobo/rplidar',
@@ -15,7 +15,7 @@ setup(
     install_requires=['pyserial'],
     zip_safe=True,
     long_description='This module aims to implement communication protocol '
-        'with RPLidar laser rangefinder scaners. It\'s Python 2 and 3 '
+        'with RPLidar laser scanners. It\'s Python 2 and 3 '
         'compatible but was mainly tested using Python 3.',
     classifiers=[
         'Development Status :: 4 - Beta',

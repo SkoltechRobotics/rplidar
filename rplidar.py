@@ -1,4 +1,4 @@
-'''Simple and lightweight module for working with RPLidar rangefinder scanner.
+'''Simple and lightweight module for working with RPLidar rangefinder scanners.
 
 Usage example:
 
