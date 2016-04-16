@@ -226,11 +226,8 @@ class RPLidar(object):
         return status, error_code
 
     def clear_input(self):
-        '''Clears input buffer by reading all available data until timeout'''
-        while True:
-            data = self._serial_port.read(100)
-            if len(data) < 100:
-                return
+        '''Clears input buffer by reading all available data'''
+        self._serial_port.read_all()
 
     def stop(self):
         '''Stops scanning process, disables laser diode and the measurment
@@ -247,7 +244,7 @@ class RPLidar(object):
         self._send_cmd(RESET_BYTE)
         time.sleep(.002)
 
-    def iter_measurments(self, force=False):
+    def iter_measurments(self, max_buf_meas=500, force=False):
         '''Iterate over measurments. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increaing lag.
@@ -268,11 +265,16 @@ class RPLidar(object):
         status, error_code = self.get_health()
         self.logger.debug('Health status: %s [%d]', status, error_code)
         if status == _HEALTH_STATUSES[2]:
-            self.logger.warning('Trying to reset sensor due to the error')
+            self.logger.warning('Trying to reset sensor due to the error. '
+                                'Error code: %d', error_code)
             self.reset()
             status, error_code = self.get_health()
             if status == _HEALTH_STATUSES[2]:
-                raise RPLidarException('RPLidar hardware failure')
+                raise RPLidarException('RPLidar hardware failure. '
+                                       'Error code: %d' % error_code)
+        elif status == _HEALTH_STATUSES[1]:
+            self.logger.warning('Warning sensor status detected! '
+                                'Error code: %d', error_code)
         cmd = SCAN_BYTE if not force else FORCE_SCAN_BYTE
         self._send_cmd(cmd)
         dsize, is_single, dtype = self._read_descriptor()
@@ -285,9 +287,17 @@ class RPLidar(object):
         while True:
             raw = self._read_response(dsize)
             self.logger.debug('Recieved scan response: %s' % raw)
+            if max_buf_meas:
+                data_in_buf = self._serial_port.in_waiting
+                if data_in_buf > max_buf_meas*dsize:
+                    self.logger.warning(
+                        'Too many measurments in the input buffer: %d/%d. '
+                        'Clearing buffer...',
+                        data_in_buf//dsize, max_buf_meas)
+                    self._serial_port.read(data_in_buf//dsize*dsize)
             yield _process_scan(raw)
 
-    def iter_scans(self, min_len=5, force=False):
+    def iter_scans(self, max_buf_meas=500, min_len=5, force=False):
         '''Iterate over scans. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increasing lag.
@@ -300,10 +310,10 @@ class RPLidar(object):
             refer to `iter_measurments` method's documentation.
         '''
         scan = []
-        for new_scan, quality, angle, distance in self.iter_measurments(force):
-            if new_scan:
+        for data in self.iter_measurments(max_buf_meas, force):
+            if data[0]:
                 if len(scan) > min_len:
                     yield scan
                 scan = []
-            if quality > 0:
-                scan.append((quality, angle, distance))
+            if data[1] > 0:
+                scan.append(data[1:])

@@ -24,15 +24,15 @@ def run():
     plt.ion()
     lidar = RPLidar(PORT_NAME)
     subplot = plt.subplot(111, projection='polar')
-    plot = subplot.scatter([0, 1], [0, 1], s=5, c=[IMIN, IMAX],
+    plot = subplot.scatter([0, 0], [0, 0], s=5, c=[IMIN, IMAX],
                            cmap=plt.cm.Greys_r, lw=0)
     subplot.set_rmax(DMAX)
     subplot.grid(True)
     plt.show()
     for scan in lidar.iter_scans():
-        update(plot, scan)
         if not plt.get_fignums():
             break
+        update(plot, scan)
     lidar.stop()
     lidar.disconnect()
 

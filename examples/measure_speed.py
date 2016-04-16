@@ -21,7 +21,7 @@ def run():
             data.append(delta)
             old_t = now
     except KeyboardInterrupt:
-        print('Stoping')
+        print('Stoping. Computing mean...')
         lidar.stop()
         lidar.disconnect()
         delta = sum(data)/len(data)
