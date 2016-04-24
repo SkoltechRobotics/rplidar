@@ -1,4 +1,6 @@
+*******
 RPLidar
+*******
 
 Simple and lightweight module for working with RPLidar rangefinder scanners
 
