@@ -33,7 +33,7 @@ SYNC_BYTE2 = b'\x5A'
 GET_INFO_BYTE = b'\x50'
 GET_HEALTH_BYTE = b'\x52'
 
-STOP_BYTE = b'\x40'
+STOP_BYTE = b'\x25'
 RESET_BYTE = b'\x40'
 
 SCAN_BYTE = b'\x20'
