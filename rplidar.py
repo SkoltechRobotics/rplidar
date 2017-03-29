@@ -156,7 +156,7 @@ class RPLidar(object):
         '''Stops sensor motor'''
         self.logger.info('Stoping motor')
         # For A1
-        self._serial_port.setDTR(True)
+        #self._serial_port.setDTR(True)  #here causing conflict with A2. DTR has to be always False to communicate.
         # For A2
         self.set_pwm(0)
         self.motor_running = False
