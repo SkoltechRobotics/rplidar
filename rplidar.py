@@ -155,10 +155,10 @@ class RPLidar(object):
     def stop_motor(self):
         '''Stops sensor motor'''
         self.logger.info('Stoping motor')
-        # For A1
-        #self._serial_port.setDTR(True)  #here causing conflict with A2. DTR has to be always False to communicate.
         # For A2
         self.set_pwm(0)
+        # For A1
+        self._serial_port.setDTR(True)  #here causing conflict with A2. DTR has to be always False to communicate.
         self.motor_running = False
 
     def _send_payload_cmd(self, cmd, payload):
