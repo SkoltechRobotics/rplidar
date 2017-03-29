@@ -26,6 +26,7 @@ import sys
 import time
 import codecs
 import serial
+import struct
 
 SYNC_BYTE = b'\xA5'
 SYNC_BYTE2 = b'\x5A'
@@ -46,6 +47,11 @@ HEALTH_LEN = 3
 INFO_TYPE = 4
 HEALTH_TYPE = 6
 SCAN_TYPE = 129
+
+#Constants & Command to start A2 motor
+MAX_MOTOR_PWM = 1023
+DEFAULT_MOTOR_PWM = 660
+SET_PWM_BYTE = b'\xF0'
 
 _HEALTH_STATUSES = {
     0: 'Good',
@@ -131,18 +137,41 @@ class RPLidar(object):
             return
         self._serial_port.close()
 
+    def set_pwm(self, pwm):
+        assert(0 <= pwm <= MAX_MOTOR_PWM)
+        payload = struct.pack("<H", pwm)
+        self._send_payload_cmd(SET_PWM_BYTE, payload)
 
     def start_motor(self):
         '''Starts sensor motor'''
         self.logger.info('Starting motor')
+        # For A1
         self._serial_port.setDTR(False)
+
+        # For A2
+        self.set_pwm(DEFAULT_MOTOR_PWM)
         self.motor_running = True
 
     def stop_motor(self):
         '''Stops sensor motor'''
         self.logger.info('Stoping motor')
+        # For A2
+        self.set_pwm(0)
+        time.sleep(.001)
+        # For A1
         self._serial_port.setDTR(True)
         self.motor_running = False
+
+    def _send_payload_cmd(self, cmd, payload):
+        '''Sends `cmd` command with `payload` to the sensor'''
+        size = struct.pack('B', len(payload))
+        req = SYNC_BYTE + cmd + size + payload
+        checksum = 0
+        for v in struct.unpack('B'*len(req), req):
+            checksum ^= v
+        req += struct.pack('B', checksum)
+        self._serial_port.write(req)
+        self.logger.debug('Command sent: %s' % req)
 
     def _send_cmd(self, cmd):
         '''Sends `cmd` command to the sensor'''
@@ -258,8 +287,8 @@ class RPLidar(object):
         angle : float
             The measurment heading angle in degree unit [0, 360)
         distance : float
-            Measured object distance related to the sensor’s rotation center.
-            In millimeter unit. Set to 0 when th measurment is invalid.
+            Measured object distance related to the sensor's rotation center.
+            In millimeter unit. Set to 0 when measurment is invalid.
         '''
         self.start_motor()
         status, error_code = self.get_health()
@@ -310,10 +339,12 @@ class RPLidar(object):
             refer to `iter_measurments` method's documentation.
         '''
         scan = []
-        for data in self.iter_measurments(max_buf_meas, force):
-            if data[0]:
+        iterator = self.iter_measurments(max_buf_meas, force)
+        for new_scan, quality, angle, distance in iterator:
+            if new_scan:
                 if len(scan) > min_len:
                     yield scan
                 scan = []
-            if data[1] > 0:
-                scan.append(data[1:])
+            if quality > 0:
+                scan.append((quality, angle, distance))
+
