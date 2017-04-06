@@ -353,7 +353,7 @@ class RPLidar(object):
             refer to `iter_measurments` method's documentation.
         '''
         scan = []
-        iterator = self.iter_measurments(max_buf_meas, force)
+        iterator = self.iter_measurments(max_buf_meas)
         for new_scan, quality, angle, distance in iterator:
             if new_scan:
                 if len(scan) > min_len:
