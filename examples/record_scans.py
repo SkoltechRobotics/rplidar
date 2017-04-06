@@ -1,7 +1,8 @@
-'''Records measurments to a given file in the form of numpy array.
+#!/usr/bin/env python3
+'''Records scans to a given file in the form of numpy array.
 Usage example:
 
-$ python3 record_scans.py out.npy'''
+$ ./record_scans.py out.npy'''
 import sys
 import numpy as np
 from rplidar import RPLidar

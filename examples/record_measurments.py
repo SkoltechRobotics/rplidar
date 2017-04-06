@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 '''Records measurments to a given file. Usage example:
 
-$ python3 record_measurments.py out.txt'''
+$ ./record_measurments.py out.txt'''
 import sys
 from rplidar import RPLidar
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Measures sensor scanning speed'''
 from rplidar import RPLidar
 import time
