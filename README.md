@@ -36,7 +36,7 @@ Simple example::
 firmware: (1, 15)
 model: 0
 hardware: 0
-serialnumber: 64E699F3C7E59AF0A2E69DF8F13735
+serialnumber: '64E699F3C7E59AF0A2E69DF8F13735'
 >>> lidar.get_health()
 ('Good', 0)
 >>> process_scan = lambda scan: None
