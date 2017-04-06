@@ -273,10 +273,16 @@ class RPLidar(object):
         self._send_cmd(RESET_BYTE)
         time.sleep(.002)
 
-    def iter_measurments(self, max_buf_meas=500, force=False):
+    def iter_measurments(self, max_buf_meas=500):
         '''Iterate over measurments. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increaing lag.
+
+        Parameters
+        ----------
+        max_buf_meas : int
+            Maximum number of measurments to be stored inside the buffer. Once
+            numbe exceeds this limit buffer will be emptied out.
 
         Yields
         ------
@@ -304,7 +310,7 @@ class RPLidar(object):
         elif status == _HEALTH_STATUSES[1]:
             self.logger.warning('Warning sensor status detected! '
                                 'Error code: %d', error_code)
-        cmd = SCAN_BYTE if not force else FORCE_SCAN_BYTE
+        cmd = SCAN_BYTE
         self._send_cmd(cmd)
         dsize, is_single, dtype = self._read_descriptor()
         if dsize != 5:
@@ -326,10 +332,18 @@ class RPLidar(object):
                     self._serial_port.read(data_in_buf//dsize*dsize)
             yield _process_scan(raw)
 
-    def iter_scans(self, max_buf_meas=500, min_len=5, force=False):
+    def iter_scans(self, max_buf_meas=500, min_len=5):
         '''Iterate over scans. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increasing lag.
+
+        Parameters
+        ----------
+        max_buf_meas : int
+            Maximum number of measurments to be stored inside the buffer. Once
+            numbe exceeds this limit buffer will be emptied out.
+        min_len : int
+            Minimum number of measurments in the scan for it to be yelded.
 
         Yields
         ------
@@ -345,6 +359,6 @@ class RPLidar(object):
                 if len(scan) > min_len:
                     yield scan
                 scan = []
-            if quality > 0:
+            if quality > 0 and distance > 0:
                 scan.append((quality, angle, distance))
 
