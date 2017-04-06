@@ -27,24 +27,25 @@ View the latest rplidar documentation at http://rplidar.rtfd.org/.
 
 ## Usage example
 
-Simple example::
+Simple example:
 ```Python
->>> from rplidar import RPLidar
->>> lidar = RPLidar('/dev/ttyUSB0')
->>> info =lidar.get_info()
->>> print('\n'.join('%s: %s' % (k, str(v)) for k, v in info.items()))
-firmware: (1, 15)
-model: 0
-hardware: 0
-serialnumber: '64E699F3C7E59AF0A2E69DF8F13735'
->>> lidar.get_health()
-('Good', 0)
->>> process_scan = lambda scan: None
->>> for scan in lidar.iter_scans():
-...  process_scan(scan)
-KeyboardInterrupt
->>> lidar.stop()
->>> lidar.stop_motor()
+from rplidar import RPLidar
+lidar = RPLidar('/dev/ttyUSB0')
+
+info = lidar.get_info()
+print(info)
+
+health = lidar.get_health()
+print(health)
+
+for i, scan in enumerate(lidar.iter_scans()):
+    print('%d: Got %d measurments' % (i, len(scan)))
+    if i > 10:
+        break
+
+lidar.stop()
+lidar.stop_motor()
+lidar.disconnect()
 ```
 
 In addition to it you can view example applications inside
