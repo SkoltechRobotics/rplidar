@@ -127,7 +127,7 @@ class RPLidar(object):
             self._serial_port = serial.Serial(
                 self.port, self.baudrate,
                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-                timeout=self.timeout)
+                timeout=self.timeout, dsrdtr=True)
         except serial.SerialException as err:
             raise RPLidarException('Failed to connect to the sensor '
                                    'due to: %s' % err)
@@ -147,7 +147,7 @@ class RPLidar(object):
         '''Starts sensor motor'''
         self.logger.info('Starting motor')
         # For A1
-        self._serial_port.setDTR(False)
+        self._serial_port.dtr = False
 
         # For A2
         self.set_pwm(DEFAULT_MOTOR_PWM)
@@ -160,7 +160,7 @@ class RPLidar(object):
         self.set_pwm(0)
         time.sleep(.001)
         # For A1
-        self._serial_port.setDTR(True)
+        self._serial_port.dtr = True
         self.motor_running = False
 
     def _send_payload_cmd(self, cmd, payload):
