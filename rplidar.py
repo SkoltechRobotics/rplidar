@@ -127,7 +127,7 @@ class RPLidar(object):
             self._serial = serial.Serial(
                 self.port, self.baudrate,
                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
-                timeout=self.timeout, dsrdtr=True)
+                timeout=self.timeout)
         except serial.SerialException as err:
             raise RPLidarException('Failed to connect to the sensor '
                                    'due to: %s' % err)
@@ -157,7 +157,7 @@ class RPLidar(object):
         '''Starts sensor motor'''
         self.logger.info('Starting motor')
         # For A1
-        self._serial_port.dtr = False
+        self._serial.setDTR(False)
 
         # For A2
         self._set_pwm(self._motor_speed)
@@ -170,7 +170,7 @@ class RPLidar(object):
         self._set_pwm(0)
         time.sleep(.001)
         # For A1
-        self._serial_port.dtr = True
+        self._serial.setDTR(True)
         self.motor_running = False
 
     def _send_payload_cmd(self, cmd, payload):
@@ -265,8 +265,8 @@ class RPLidar(object):
         error_code = (_b2i(raw[1]) << 8) + _b2i(raw[2])
         return status, error_code
 
-    def clear_input(self):
-        '''Clears input buffer by reading all available data'''
+    def clean_input(self):
+        '''Clean input buffer by reading all available data'''
         self._serial.flushInput()
 
     def stop(self):
@@ -275,15 +275,15 @@ class RPLidar(object):
         self.logger.info('Stoping scanning')
         self._send_cmd(STOP_BYTE)
         time.sleep(.001)
-        self.clear_input()
+        self.clean_input()
 
     def reset(self):
         '''Resets sensor core, reverting it to a similar state as it has
         just been powered up.'''
         self.logger.info('Reseting the sensor')
         self._send_cmd(RESET_BYTE)
-        time.sleep(.004)
-        self.clear_input()
+        time.sleep(2)
+        self.clean_input()
 
     def iter_measures(self, max_buf_meas=500):
         '''Iterate over measures. Note that consumer must be fast enough,
@@ -335,13 +335,13 @@ class RPLidar(object):
             raw = self._read_response(dsize)
             self.logger.debug('Recieved scan response: %s' % raw)
             if max_buf_meas:
-                data_in_buf = self._serial.in_waiting
+                data_in_buf = self._serial.in_waiting()
                 if data_in_buf > max_buf_meas*dsize:
                     self.logger.warning(
                         'Too many measures in the input buffer: %d/%d. '
-                        'Clearing buffer...',
+                        'Cleaning buffer...',
                         data_in_buf//dsize, max_buf_meas)
-                    self._serial.read(data_in_buf//dsize*dsize)
+                    self.clean_input()
             yield _process_scan(raw)
 
     def iter_scans(self, max_buf_meas=500, min_len=5):
