@@ -4,15 +4,15 @@ Usage example:
 
 >>> from rplidar import RPLidar
 >>> lidar = RPLidar('/dev/ttyUSB0')
->>> 
+>>>
 >>> info = lidar.get_info()
 >>> print(info)
->>> 
+>>>
 >>> health = lidar.get_health()
 >>> print(health)
->>> 
+>>>
 >>> for i, scan in enumerate(lidar.iter_scans()):
-...  print('%d: Got %d measurments' % (i, len(scan)))
+...  print('%d: Got %d measures' % (i, len(scan)))
 ...  if i > 10:
 ...   break
 ...
@@ -49,7 +49,7 @@ INFO_TYPE = 4
 HEALTH_TYPE = 6
 SCAN_TYPE = 129
 
-#Constants & Command to start A2 motor
+# Constants & Command to start A2 motor
 MAX_MOTOR_PWM = 1023
 DEFAULT_MOTOR_PWM = 660
 SET_PWM_BYTE = b'\xF0'
@@ -69,6 +69,12 @@ def _b2i(byte):
     '''Converts byte to integer (for Python 2 compatability)'''
     return byte if int(sys.version[0]) == 3 else ord(byte)
 
+
+def _showhex(signal):
+    '''Converts string bytes to hex representation (useful for debugging)'''
+    return [format(_b2i(b), '#02x') for b in signal]
+
+
 def _process_scan(raw):
     '''Processes input raw data and returns measurment data'''
     new_scan = bool(_b2i(raw[0]) & 0b1)
@@ -87,12 +93,6 @@ def _process_scan(raw):
 class RPLidar(object):
     '''Class for communicating with RPLidar rangefinder scanners'''
 
-    _serial_port = None  #: serial port connection
-    port = ''  #: Serial port name, e.g. /dev/ttyUSB0
-    timeout = 1  #: Serial port timeout
-    motor = False  #: Is motor running?
-    baudrate = 115200  #: Baudrate for serial port
-
     def __init__(self, port, baudrate=115200, timeout=1, logger=None):
         '''Initilize RPLidar object for communicating with the sensor.
 
@@ -107,24 +107,24 @@ class RPLidar(object):
         logger : logging.Logger instance, optional
             Logger instance, if none is provided new instance is created
         '''
-        self._serial_port = None
+        self._serial = None
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
+        self._motor_speed = DEFAULT_MOTOR_PWM
         self.motor_running = None
         if logger is None:
             logger = logging.getLogger('rplidar')
         self.logger = logger
         self.connect()
-        self.start_motor()
 
     def connect(self):
         '''Connects to the serial port with the name `self.port`. If it was
         connected to another serial port disconnects from it first.'''
-        if self._serial_port is not None:
+        if self._serial is not None:
             self.disconnect()
         try:
-            self._serial_port = serial.Serial(
+            self._serial = serial.Serial(
                 self.port, self.baudrate,
                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE,
                 timeout=self.timeout)
@@ -134,33 +134,43 @@ class RPLidar(object):
 
     def disconnect(self):
         '''Disconnects from the serial port'''
-        if self._serial_port is None:
+        if self._serial is None:
             return
-        self._serial_port.close()
+        self._serial.close()
 
-    def set_pwm(self, pwm):
-        assert(0 <= pwm <= MAX_MOTOR_PWM)
+    def _set_pwm(self, pwm):
         payload = struct.pack("<H", pwm)
         self._send_payload_cmd(SET_PWM_BYTE, payload)
+
+    @property
+    def motor_speed(self):
+        return self._motor_speed
+
+    @motor_speed.setter
+    def motor_speed(self, pwm):
+        assert(0 <= pwm <= MAX_MOTOR_PWM)
+        self._motor_speed = pwm
+        if self.motor_running:
+            self._set_pwm(self._motor_speed)
 
     def start_motor(self):
         '''Starts sensor motor'''
         self.logger.info('Starting motor')
         # For A1
-        self._serial_port.setDTR(False)
+        self._serial.setDTR(False)
 
         # For A2
-        self.set_pwm(DEFAULT_MOTOR_PWM)
+        self._set_pwm(self._motor_speed)
         self.motor_running = True
 
     def stop_motor(self):
         '''Stops sensor motor'''
         self.logger.info('Stoping motor')
         # For A2
-        self.set_pwm(0)
+        self._set_pwm(0)
         time.sleep(.001)
         # For A1
-        self._serial_port.setDTR(True)
+        self._serial.setDTR(True)
         self.motor_running = False
 
     def _send_payload_cmd(self, cmd, payload):
@@ -171,19 +181,19 @@ class RPLidar(object):
         for v in struct.unpack('B'*len(req), req):
             checksum ^= v
         req += struct.pack('B', checksum)
-        self._serial_port.write(req)
-        self.logger.debug('Command sent: %s' % req)
+        self._serial.write(req)
+        self.logger.debug('Command sent: %s' % _showhex(req))
 
     def _send_cmd(self, cmd):
         '''Sends `cmd` command to the sensor'''
         req = SYNC_BYTE + cmd
-        self._serial_port.write(req)
-        self.logger.debug('Command sent: %s' % req)
+        self._serial.write(req)
+        self.logger.debug('Command sent: %s' % _showhex(req))
 
     def _read_descriptor(self):
         '''Reads descriptor packet'''
-        descriptor = self._serial_port.read(DESCRIPTOR_LEN)
-        self.logger.debug('Recieved descriptor: %s', descriptor)
+        descriptor = self._serial.read(DESCRIPTOR_LEN)
+        self.logger.debug('Recieved descriptor: %s', _showhex(descriptor))
         if len(descriptor) != DESCRIPTOR_LEN:
             raise RPLidarException('Descriptor length mismatch')
         elif not descriptor.startswith(SYNC_BYTE + SYNC_BYTE2):
@@ -194,8 +204,8 @@ class RPLidar(object):
     def _read_response(self, dsize):
         '''Reads response packet with length of `dsize` bytes'''
         self.logger.debug('Trying to read response: %d bytes', dsize)
-        data = self._serial_port.read(dsize)
-        self.logger.debug('Recieved data: %s', data)
+        data = self._serial.read(dsize)
+        self.logger.debug('Recieved data: %s', _showhex(data))
         if len(data) != dsize:
             raise RPLidarException('Wrong body size')
         return data
@@ -257,7 +267,7 @@ class RPLidar(object):
 
     def clear_input(self):
         '''Clears input buffer by reading all available data'''
-        self._serial_port.read_all()
+        self._serial.flushInput()
 
     def stop(self):
         '''Stops scanning process, disables laser diode and the measurment
@@ -272,30 +282,31 @@ class RPLidar(object):
         just been powered up.'''
         self.logger.info('Reseting the sensor')
         self._send_cmd(RESET_BYTE)
-        time.sleep(.002)
+        time.sleep(.004)
+        self.clear_input()
 
-    def iter_measurments(self, max_buf_meas=500):
-        '''Iterate over measurments. Note that consumer must be fast enough,
+    def iter_measures(self, max_buf_meas=500):
+        '''Iterate over measures. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
-        data with increaing lag.
+        data with increasing lag.
 
         Parameters
         ----------
         max_buf_meas : int
-            Maximum number of measurments to be stored inside the buffer. Once
+            Maximum number of measures to be stored inside the buffer. Once
             numbe exceeds this limit buffer will be emptied out.
 
         Yields
         ------
         new_scan : bool
-            True if measurment belongs to a new scan
+            True if measures belongs to a new scan
         quality : int
             Reflected laser pulse strength
         angle : float
-            The measurment heading angle in degree unit [0, 360)
+            The measure heading angle in degree unit [0, 360)
         distance : float
             Measured object distance related to the sensor's rotation center.
-            In millimeter unit. Set to 0 when measurment is invalid.
+            In millimeter unit. Set to 0 when measure is invalid.
         '''
         self.start_motor()
         status, error_code = self.get_health()
@@ -324,13 +335,13 @@ class RPLidar(object):
             raw = self._read_response(dsize)
             self.logger.debug('Recieved scan response: %s' % raw)
             if max_buf_meas:
-                data_in_buf = self._serial_port.in_waiting
+                data_in_buf = self._serial.in_waiting
                 if data_in_buf > max_buf_meas*dsize:
                     self.logger.warning(
-                        'Too many measurments in the input buffer: %d/%d. '
+                        'Too many measures in the input buffer: %d/%d. '
                         'Clearing buffer...',
                         data_in_buf//dsize, max_buf_meas)
-                    self._serial_port.read(data_in_buf//dsize*dsize)
+                    self._serial.read(data_in_buf//dsize*dsize)
             yield _process_scan(raw)
 
     def iter_scans(self, max_buf_meas=500, min_len=5):
@@ -341,20 +352,20 @@ class RPLidar(object):
         Parameters
         ----------
         max_buf_meas : int
-            Maximum number of measurments to be stored inside the buffer. Once
+            Maximum number of measures to be stored inside the buffer. Once
             numbe exceeds this limit buffer will be emptied out.
         min_len : int
-            Minimum number of measurments in the scan for it to be yelded.
+            Minimum number of measures in the scan for it to be yelded.
 
         Yields
         ------
         scan : list
-            List of the measurments. Each measurment is tuple with following
+            List of the measures. Each measurment is tuple with following
             format: (quality, angle, distance). For values description please
-            refer to `iter_measurments` method's documentation.
+            refer to `iter_measures` method's documentation.
         '''
         scan = []
-        iterator = self.iter_measurments(max_buf_meas)
+        iterator = self.iter_measures(max_buf_meas)
         for new_scan, quality, angle, distance in iterator:
             if new_scan:
                 if len(scan) > min_len:
@@ -362,4 +373,3 @@ class RPLidar(object):
                 scan = []
             if quality > 0 and distance > 0:
                 scan.append((quality, angle, distance))
-
