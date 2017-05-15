@@ -76,7 +76,7 @@ def _showhex(signal):
 
 
 def _process_scan(raw):
-    '''Processes input raw data and returns measurment data'''
+    '''Processes input raw data and returns measurement data'''
     new_scan = bool(_b2i(raw[0]) & 0b1)
     inversed_new_scan = bool((_b2i(raw[0]) >> 1) & 0b1)
     quality = _b2i(raw[0]) >> 2
@@ -112,6 +112,7 @@ class RPLidar(object):
         self.baudrate = baudrate
         self.timeout = timeout
         self._motor_speed = DEFAULT_MOTOR_PWM
+        self.scanning = [False, 0]
         self.motor_running = None
         if logger is None:
             logger = logging.getLogger('rplidar')
@@ -193,7 +194,7 @@ class RPLidar(object):
     def _read_descriptor(self):
         '''Reads descriptor packet'''
         descriptor = self._serial.read(DESCRIPTOR_LEN)
-        self.logger.debug('Recieved descriptor: %s', _showhex(descriptor))
+        self.logger.debug('Received descriptor: %s', _showhex(descriptor))
         if len(descriptor) != DESCRIPTOR_LEN:
             raise RPLidarException('Descriptor length mismatch')
         elif not descriptor.startswith(SYNC_BYTE + SYNC_BYTE2):
@@ -204,10 +205,10 @@ class RPLidar(object):
     def _read_response(self, dsize):
         '''Reads response packet with length of `dsize` bytes'''
         self.logger.debug('Trying to read response: %d bytes', dsize)
+        while self._serial.inWaiting() < dsize:
+            time.sleep(0.001)
         data = self._serial.read(dsize)
-        self.logger.debug('Recieved data: %s', _showhex(data))
-        if len(data) != dsize:
-            raise RPLidarException('Wrong body size')
+        self.logger.debug('Received data: %s', _showhex(data))
         return data
 
     def get_info(self):
@@ -218,6 +219,8 @@ class RPLidar(object):
         dict
             Dictionary with the sensor information
         '''
+        if self.scanning[0]:
+            return 'Scanning active, you can\'t have info !'
         self._send_cmd(GET_INFO_BYTE)
         dsize, is_single, dtype = self._read_descriptor()
         if dsize != INFO_LEN:
@@ -252,6 +255,9 @@ class RPLidar(object):
         error_code : int
             The related error code that caused a warning/error.
         '''
+        if self.scanning[0]:
+            return 'Scanning active, you can\'t have info !'
+        self.logger.info('Asking for health')
         self._send_cmd(GET_HEALTH_BYTE)
         dsize, is_single, dtype = self._read_descriptor()
         if dsize != HEALTH_LEN:
@@ -267,15 +273,48 @@ class RPLidar(object):
 
     def clean_input(self):
         '''Clean input buffer by reading all available data'''
+        if self.scanning[0]:
+            return 'Cleanning not allowed during scanning process active !'
         self._serial.flushInput()
 
     def stop(self):
         '''Stops scanning process, disables laser diode and the measurment
         system, moves sensor to the idle state.'''
-        self.logger.info('Stoping scanning')
+        self.logger.info('Stopping scanning')
         self._send_cmd(STOP_BYTE)
-        time.sleep(.001)
+        time.sleep(.1)
+        self.scanning = [False, 0]
         self.clean_input()
+
+    def start(self):
+        if self.scanning[0]:
+            return 'Scanning already running !'
+        '''Start the scanning process, enable laser diode and the
+        measurement system'''
+        status, error_code = self.get_health()
+        self.logger.debug('Health status: %s [%d]', status, error_code)
+        if status == _HEALTH_STATUSES[2]:
+            self.logger.warning('Trying to reset sensor due to the error. '
+                                'Error code: %d', error_code)
+            self.reset()
+            status, error_code = self.get_health()
+            if status == _HEALTH_STATUSES[2]:
+                raise RPLidarException('RPLidar hardware failure. '
+                                       'Error code: %d' % error_code)
+        elif status == _HEALTH_STATUSES[1]:
+            self.logger.warning('Warning sensor status detected! '
+                                'Error code: %d', error_code)
+        cmd = SCAN_BYTE
+        self.logger.info('starting scan process')
+        self._send_cmd(cmd)
+        dsize, is_single, dtype = self._read_descriptor()
+        if dsize != 5:
+            raise RPLidarException('Wrong get_info reply length')
+        if is_single:
+            raise RPLidarException('Not a multiple response mode')
+        if dtype != SCAN_TYPE:
+            raise RPLidarException('Wrong response data type')
+        self.scanning = [True, dsize]
 
     def reset(self):
         '''Resets sensor core, reverting it to a similar state as it has
@@ -292,7 +331,7 @@ class RPLidar(object):
 
         Parameters
         ----------
-        max_buf_meas : int
+        max_buf_meas : int or False if you want unlimited buffer
             Maximum number of measures to be stored inside the buffer. Once
             numbe exceeds this limit buffer will be emptied out.
 
@@ -309,39 +348,21 @@ class RPLidar(object):
             In millimeter unit. Set to 0 when measure is invalid.
         '''
         self.start_motor()
-        status, error_code = self.get_health()
-        self.logger.debug('Health status: %s [%d]', status, error_code)
-        if status == _HEALTH_STATUSES[2]:
-            self.logger.warning('Trying to reset sensor due to the error. '
-                                'Error code: %d', error_code)
-            self.reset()
-            status, error_code = self.get_health()
-            if status == _HEALTH_STATUSES[2]:
-                raise RPLidarException('RPLidar hardware failure. '
-                                       'Error code: %d' % error_code)
-        elif status == _HEALTH_STATUSES[1]:
-            self.logger.warning('Warning sensor status detected! '
-                                'Error code: %d', error_code)
-        cmd = SCAN_BYTE
-        self._send_cmd(cmd)
-        dsize, is_single, dtype = self._read_descriptor()
-        if dsize != 5:
-            raise RPLidarException('Wrong get_info reply length')
-        if is_single:
-            raise RPLidarException('Not a multiple response mode')
-        if dtype != SCAN_TYPE:
-            raise RPLidarException('Wrong response data type')
+        if not self.scanning[0]:
+            self.start()
         while True:
-            raw = self._read_response(dsize)
-            self.logger.debug('Recieved scan response: %s' % raw)
+            dsize = self.scanning[1]
             if max_buf_meas:
-                data_in_buf = self._serial.in_waiting()
+                data_in_buf = self._serial.inWaiting()
                 if data_in_buf > max_buf_meas*dsize:
                     self.logger.warning(
                         'Too many measures in the input buffer: %d/%d. '
                         'Cleaning buffer...',
                         data_in_buf//dsize, max_buf_meas)
-                    self.clean_input()
+                    self.stop()
+                    time.sleep(0.01)
+                    self.start()
+            raw = self._read_response(dsize)
             yield _process_scan(raw)
 
     def iter_scans(self, max_buf_meas=500, min_len=5):
