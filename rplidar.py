@@ -38,8 +38,11 @@ GET_HEALTH_BYTE = b'\x52'
 STOP_BYTE = b'\x25'
 RESET_BYTE = b'\x40'
 
-SCAN_BYTE = b'\x20'
-FORCE_SCAN_BYTE = b'\x21'
+_SCAN_TYPE = {
+    'normal': {'byte': b'\x20', 'response': 129, 'size': 5},
+    'force': {'byte': b'\x21', 'response': 129, 'size': 5},
+    'express': {'byte': b'\x82', 'response': 130, 'size': 84},
+}
 
 DESCRIPTOR_LEN = 7
 INFO_LEN = 20
@@ -47,7 +50,6 @@ HEALTH_LEN = 3
 
 INFO_TYPE = 4
 HEALTH_TYPE = 6
-SCAN_TYPE = 129
 
 # Constants & Command to start A2 motor
 MAX_MOTOR_PWM = 1023
@@ -112,7 +114,7 @@ class RPLidar(object):
         self.baudrate = baudrate
         self.timeout = timeout
         self._motor_speed = DEFAULT_MOTOR_PWM
-        self.scanning = [False, 0]
+        self.scanning = [False, 0, 'normal']
         self.motor_running = None
         if logger is None:
             logger = logging.getLogger('rplidar')
@@ -278,7 +280,7 @@ class RPLidar(object):
         self._serial.flushInput()
 
     def stop(self):
-        '''Stops scanning process, disables laser diode and the measurment
+        '''Stops scanning process, disables laser diode and the measurement
         system, moves sensor to the idle state.'''
         self.logger.info('Stopping scanning')
         self._send_cmd(STOP_BYTE)
@@ -286,7 +288,13 @@ class RPLidar(object):
         self.scanning = [False, 0]
         self.clean_input()
 
-    def start(self):
+    def start(self, scan='normal'):
+        '''Start the scanning process
+
+        Parameters
+        ----------
+        scan : normal, force or express.
+        '''
         if self.scanning[0]:
             return 'Scanning already running !'
         '''Start the scanning process, enable laser diode and the
@@ -304,17 +312,23 @@ class RPLidar(object):
         elif status == _HEALTH_STATUSES[1]:
             self.logger.warning('Warning sensor status detected! '
                                 'Error code: %d', error_code)
-        cmd = SCAN_BYTE
-        self.logger.info('starting scan process')
-        self._send_cmd(cmd)
+
+        cmd = _SCAN_TYPE[scan]['byte']
+        self.logger.info('starting scan process in %s mode' % scan)
+
+        if scan == 'express':
+            self._send_payload_cmd(cmd, b'\x00\x00\x00\x00\x00')
+        else:
+            self._send_cmd(cmd)
+
         dsize, is_single, dtype = self._read_descriptor()
-        if dsize != 5:
+        if dsize != _SCAN_TYPE[scan]['size']:
             raise RPLidarException('Wrong get_info reply length')
         if is_single:
             raise RPLidarException('Not a multiple response mode')
-        if dtype != SCAN_TYPE:
+        if dtype != _SCAN_TYPE[scan]['response']:
             raise RPLidarException('Wrong response data type')
-        self.scanning = [True, dsize]
+        self.scanning = [True, dsize, scan]
 
     def reset(self):
         '''Resets sensor core, reverting it to a similar state as it has
