@@ -29,6 +29,8 @@ import codecs
 import serial
 import struct
 
+from collections import namedtuple
+
 SYNC_BYTE = b'\xA5'
 SYNC_BYTE2 = b'\x5A'
 
@@ -92,6 +94,20 @@ def _process_scan(raw):
     return new_scan, quality, angle, distance
 
 
+def _process_express_scan(data, new_angle, trame):
+    if trame == 1:
+        new = True
+    else:
+        new = False
+    new_scan = (new_angle < data.start_angle) & new
+    quality = None
+    angle = (data.start_angle + (
+            (new_angle - data.start_angle) % 360
+            )/32*trame - data.angle[trame-1]) % 360
+    distance = data.distance[trame-1]
+    return new_scan, quality, angle, distance
+
+
 class RPLidar(object):
     '''Class for communicating with RPLidar rangefinder scanners'''
 
@@ -115,6 +131,8 @@ class RPLidar(object):
         self.timeout = timeout
         self._motor_speed = DEFAULT_MOTOR_PWM
         self.scanning = [False, 0, 'normal']
+        self.express_trame = 32
+        self.express_data = False
         self.motor_running = None
         if logger is None:
             logger = logging.getLogger('rplidar')
@@ -221,8 +239,9 @@ class RPLidar(object):
         dict
             Dictionary with the sensor information
         '''
-        if self.scanning[0]:
-            return 'Scanning active, you can\'t have info !'
+        if self._serial.inWaiting() > 0:
+            return ('Data in buffer, you can\'t have info ! '
+                    'Run clean_input() to emptied the buffer.')
         self._send_cmd(GET_INFO_BYTE)
         dsize, is_single, dtype = self._read_descriptor()
         if dsize != INFO_LEN:
@@ -257,8 +276,9 @@ class RPLidar(object):
         error_code : int
             The related error code that caused a warning/error.
         '''
-        if self.scanning[0]:
-            return 'Scanning active, you can\'t have info !'
+        if self._serial.inWaiting() > 0:
+            return ('Data in buffer, you can\'t have info ! '
+                    'Run clean_input() to emptied the buffer.')
         self.logger.info('Asking for health')
         self._send_cmd(GET_HEALTH_BYTE)
         dsize, is_single, dtype = self._read_descriptor()
@@ -278,6 +298,8 @@ class RPLidar(object):
         if self.scanning[0]:
             return 'Cleanning not allowed during scanning process active !'
         self._serial.flushInput()
+        self.express_trame = 32
+        self.express_data = False
 
     def stop(self):
         '''Stops scanning process, disables laser diode and the measurement
@@ -285,10 +307,10 @@ class RPLidar(object):
         self.logger.info('Stopping scanning')
         self._send_cmd(STOP_BYTE)
         time.sleep(.1)
-        self.scanning = [False, 0]
+        self.scanning[0] = False
         self.clean_input()
 
-    def start(self, scan='normal'):
+    def start(self, scan_type='normal'):
         '''Start the scanning process
 
         Parameters
@@ -313,22 +335,22 @@ class RPLidar(object):
             self.logger.warning('Warning sensor status detected! '
                                 'Error code: %d', error_code)
 
-        cmd = _SCAN_TYPE[scan]['byte']
-        self.logger.info('starting scan process in %s mode' % scan)
+        cmd = _SCAN_TYPE[scan_type]['byte']
+        self.logger.info('starting scan process in %s mode' % scan_type)
 
-        if scan == 'express':
+        if scan_type == 'express':
             self._send_payload_cmd(cmd, b'\x00\x00\x00\x00\x00')
         else:
             self._send_cmd(cmd)
 
         dsize, is_single, dtype = self._read_descriptor()
-        if dsize != _SCAN_TYPE[scan]['size']:
+        if dsize != _SCAN_TYPE[scan_type]['size']:
             raise RPLidarException('Wrong get_info reply length')
         if is_single:
             raise RPLidarException('Not a multiple response mode')
-        if dtype != _SCAN_TYPE[scan]['response']:
+        if dtype != _SCAN_TYPE[scan_type]['response']:
             raise RPLidarException('Wrong response data type')
-        self.scanning = [True, dsize, scan]
+        self.scanning = [True, dsize, scan_type]
 
     def reset(self):
         '''Resets sensor core, reverting it to a similar state as it has
@@ -338,7 +360,7 @@ class RPLidar(object):
         time.sleep(2)
         self.clean_input()
 
-    def iter_measures(self, max_buf_meas=500):
+    def iter_measures(self, scan_type='normal', max_buf_meas=3000):
         '''Iterate over measures. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increasing lag.
@@ -346,7 +368,7 @@ class RPLidar(object):
         Parameters
         ----------
         max_buf_meas : int or False if you want unlimited buffer
-            Maximum number of measures to be stored inside the buffer. Once
+            Maximum number of bytes to be stored inside the buffer. Once
             numbe exceeds this limit buffer will be emptied out.
 
         Yields
@@ -363,23 +385,48 @@ class RPLidar(object):
         '''
         self.start_motor()
         if not self.scanning[0]:
-            self.start()
+            self.start(scan_type)
         while True:
             dsize = self.scanning[1]
             if max_buf_meas:
                 data_in_buf = self._serial.inWaiting()
-                if data_in_buf > max_buf_meas*dsize:
+                if data_in_buf > max_buf_meas:
                     self.logger.warning(
-                        'Too many measures in the input buffer: %d/%d. '
+                        'Too many bytes in the input buffer: %d/%d. '
                         'Cleaning buffer...',
-                        data_in_buf//dsize, max_buf_meas)
+                        data_in_buf, max_buf_meas)
                     self.stop()
-                    time.sleep(0.01)
-                    self.start()
-            raw = self._read_response(dsize)
-            yield _process_scan(raw)
+                    self.start(self.scanning[2])
 
-    def iter_scans(self, max_buf_meas=500, min_len=5):
+            if self.scanning[2] == 'normal':
+                raw = self._read_response(dsize)
+                yield _process_scan(raw)
+            if self.scanning[2] == 'express':
+                if self.express_trame == 32:
+                    self.express_trame = 0
+                    if not self.express_data:
+                        self.logger.debug('reading first time bytes')
+                        self.express_data = ExpressPacket.from_string(
+                                            self._read_response(dsize))
+
+                    self.express_old_data = self.express_data
+                    self.logger.debug('set old_data with start_angle %f',
+                                      self.express_old_data.start_angle)
+                    self.express_data = ExpressPacket.from_string(
+                                        self._read_response(dsize))
+                    self.logger.debug('set new_data with start_angle %f',
+                                      self.express_data.start_angle)
+
+                self.express_trame += 1
+                self.logger.debug('process scan of frame %d with angle : '
+                                  '%f and angle new : %f', self.express_trame,
+                                  self.express_old_data.start_angle,
+                                  self.express_data.start_angle)
+                yield _process_express_scan(self.express_old_data,
+                                            self.express_data.start_angle,
+                                            self.express_trame)
+
+    def iter_scans(self, scan_type='normal', max_buf_meas=3000, min_len=5):
         '''Iterate over scans. Note that consumer must be fast enough,
         otherwise data will be accumulated inside buffer and consumer will get
         data with increasing lag.
@@ -399,12 +446,48 @@ class RPLidar(object):
             format: (quality, angle, distance). For values description please
             refer to `iter_measures` method's documentation.
         '''
-        scan = []
-        iterator = self.iter_measures(max_buf_meas)
+        scan_list = []
+        iterator = self.iter_measures(scan_type, max_buf_meas)
         for new_scan, quality, angle, distance in iterator:
             if new_scan:
-                if len(scan) > min_len:
-                    yield scan
-                scan = []
-            if quality > 0 and distance > 0:
-                scan.append((quality, angle, distance))
+                if len(scan_list) > min_len:
+                    yield scan_list
+                scan_list = []
+            if distance > 0:
+                scan_list.append((quality, angle, distance))
+
+
+class ExpressPacket(namedtuple('express_packet',
+                               'distance angle new_scan start_angle')):
+    sync1 = 0xa
+    sync2 = 0x5
+    sign = {0: 1, 1: -1}
+
+    @classmethod
+    def from_string(cls, data):
+        packet = bytearray(data)
+
+        if (packet[0] >> 4) != cls.sync1 or (packet[1] >> 4) != cls.sync2:
+            raise ValueError('try to parse corrupted data ({})'.format(packet))
+
+        checksum = 0
+        for b in packet[2:]:
+            checksum ^= b
+        if checksum != (packet[0] & 0b00001111) + ((
+                        packet[1] & 0b00001111) << 4):
+            raise ValueError('Invalid checksum ({})'.format(packet))
+
+        new_scan = packet[3] >> 7
+        start_angle = (packet[2] + ((packet[3] & 0b01111111) << 8)) / 64
+
+        d = a = ()
+        for i in range(16):
+            d += ((packet[i+4] >> 2) + (packet[i+5] << 6),)
+            a += (((packet[i+8] & 0b00001111) + ((
+                    packet[i+4] & 0b00000001) << 4))/8*cls.sign[(
+                     packet[i+4] & 0b00000010) >> 1],)
+            d += ((packet[i+6] >> 2) + (packet[i+7] << 6),)
+            a += (((packet[i+8] >> 4) + (
+                (packet[i+6] & 0b00000001) << 4))/8*cls.sign[(
+                    packet[i+6] & 0b00000010) >> 1],)
+        return cls(d, a, new_scan, start_angle)
