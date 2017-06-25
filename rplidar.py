@@ -257,7 +257,7 @@ class RPLidar(object):
 
     def clear_input(self):
         '''Clears input buffer by reading all available data'''
-        self._serial_port.read_all()
+        self._serial_port.readall()# it was written self._serial_port.read_all() but it is wrong fucntion Serial module use readall() function
 
     def stop(self):
         '''Stops scanning process, disables laser diode and the measurment
