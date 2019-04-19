@@ -324,7 +324,7 @@ class RPLidar(object):
             raw = self._read_response(dsize)
             self.logger.debug('Recieved scan response: %s' % raw)
             if max_buf_meas:
-                data_in_buf = self._serial_port.in_waiting
+                data_in_buf = self._serial_port.inWaiting()#'in_waiting' but Serial module use 'inWaitig' Function
                 if data_in_buf > max_buf_meas*dsize:
                     self.logger.warning(
                         'Too many measurments in the input buffer: %d/%d. '
