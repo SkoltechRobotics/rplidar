@@ -292,7 +292,7 @@ class RPLidar(object):
         quality : int
             Reflected laser pulse strength
         angle : float
-            The measurment heading angle in degree unit [0, 360)
+            The measurment heading angle in degree unit [0, 360]
         distance : float
             Measured object distance related to the sensor's rotation center.
             In millimeter unit. Set to 0 when measurment is invalid.
