@@ -34,6 +34,7 @@ SYNC_BYTE2 = b'\x5A'
 
 GET_INFO_BYTE = b'\x50'
 GET_HEALTH_BYTE = b'\x52'
+GET_SAMPLERATE_BYTE = b'\x59'
 
 STOP_BYTE = b'\x25'
 RESET_BYTE = b'\x40'
@@ -44,10 +45,12 @@ FORCE_SCAN_BYTE = b'\x21'
 DESCRIPTOR_LEN = 7
 INFO_LEN = 20
 HEALTH_LEN = 3
+SAMPLERATE_LEN = 4
 
 INFO_TYPE = 4
 HEALTH_TYPE = 6
 SCAN_TYPE = 129
+SAMPLERATE_TYPE = 21
 
 #Constants & Command to start A2 motor
 MAX_MOTOR_PWM = 1023
@@ -254,6 +257,29 @@ class RPLidar(object):
         status = _HEALTH_STATUSES[_b2i(raw[0])]
         error_code = (_b2i(raw[1]) << 8) + _b2i(raw[2])
         return status, error_code
+
+    def get_samplerate(self):
+        '''Get the single measurement duration
+            
+        Returns
+        -------
+        dict
+            Dictionary with the duration in microsecond(uS)
+        '''
+        self._send_cmd(GET_SAMPLERATE_BYTE)
+        dsize, is_single, dtype = self._read_descriptor()
+        if dsize != SAMPLERATE_LEN:
+            raise RPLidarException('Wrong get_samplerate reply length')
+        if not is_single:
+            raise RPLidarException('Not a single response mode')
+        if dtype != SAMPLERATE_TYPE:
+            raise RPLidarException('Wrong response data type')
+        raw = self._read_response(dsize)
+        data = {
+            'Tstandard': (_b2i(raw[0]) + (_b2i(raw[1]) << 8)),
+            'Texpress': (_b2i(raw[2]) + (_b2i(raw[3]) << 8)),
+        }
+        return data
 
     def clear_input(self):
         '''Clears input buffer by reading all available data'''
